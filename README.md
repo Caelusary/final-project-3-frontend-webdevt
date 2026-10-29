@@ -1,0 +1,143 @@
+# Loadout (frontend)
+
+A marketplace for computer peripherals: independent shops list keyboards, mice, headsets, webcams, mousepads and accessories, customers buy from several shops in one checkout, and a platform admin approves sellers and moderates listings. Built with MongoDB, Express, React and Node (Group 3, C3A final project).
+
+This repo is the React client. The API lives in [final-project-3-backend-webdevt](https://github.com/Caelusary/final-project-3-backend-webdevt).
+
+- Live site: https://loadout-brown.vercel.app
+- API: https://loadout-api-lk00.onrender.com/api/health
+
+The fact that shapes the rest of the app: product specs are stored as structured data, not prose, so every spec a shopper cares about (switch type, layout, connectivity, resolution) is a filter, and the homepage renders each product as a 3D model built from those same specs.
+
+## Running locally
+
+Requires Node 20.19 or newer. The client needs the API running beside it, so clone the backend repo too and start it first (see its README; with no database configured it runs on a seeded in-memory MongoDB).
+
+```bash
+npm install
+```
+
+```bash
+npm run dev
+```
+
+The client runs on http://localhost:5173 and proxies `/api` to the API on http://localhost:5000 (set `API_PORT` to point it elsewhere).
+
+### Demo accounts
+
+All use the password `password123`.
+
+| Email | Role |
+|---|---|
+| `owner@loadout.test` | Owner: an admin who also makes, removes and deactivates admins |
+| `admin@loadout.test` | Admin (can't change other admins or the owner) |
+| `northpaw@loadout.test` | Seller (Northpaw Keys) |
+| `glide@loadout.test` | Seller (Glide Lab) |
+| `hush@loadout.test` | Seller (Hush Audio) |
+| `lumen@loadout.test` | Seller (Lumen Desk) |
+| `coilworks@loadout.test` | Customer with a pending seller application |
+| `mika@loadout.test`, `paolo@loadout.test`, `lea@loadout.test` | Customers with order history |
+| `ramon@loadout.test`, `joy@loadout.test` | Delivery riders: shipped orders are handed to them, and they mark them delivered |
+
+Discount codes to try at checkout: `WELCOME200` (₱200 off from ₱1,500), `LOADOUT10` (10% off from ₱3,000), and `LAUNCH25` (expired, to see the error). Each customer can use a code once.
+
+## Pages
+
+| Route | Who | What it does |
+|---|---|---|
+| `/` | Everyone | Search bar with starter chips for the selected category, a 3D stage with one model per category, featured products, new arrivals, shops |
+| `/compare` | Everyone | Up to four products of one category side by side, best value per row highlighted; the URL is shareable |
+| `/loadout` | Everyone (adding to cart needs sign-in) | Loadout builder: pick one product per category, see the total, add everything to the cart |
+| `/shop` | Everyone | Catalog; search, category, spec, brand, price and stock filters all live in the URL |
+| `/p/:slug` | Everyone | Product detail with photo and 3D views, specs, and reviews |
+| `/s/:slug` | Everyone | A seller's storefront |
+| `/cart` | Customers and sellers (guests are sent to sign in) | Cart grouped by shop, with per-shop shipping; tick which items to check out (remembered on the device). Saved on the account, so it's the same on every device |
+| `/checkout`, `/order-confirmed/:checkoutId` | Signed in | Address, simulated payment, discount code, and the orders the checkout created |
+| `/orders/:id` | The order's customer, its seller, its rider, or an admin | Order detail with a timestamped status timeline (placed, processing, shipped, out for delivery, delivered); cancel or advance depending on who is looking; returns within 7 days of delivery |
+| `/account`, `/account/orders`, `/account/wishlist`, `/account/sell` | Signed in | Profile, password and deleting your account (plus `/forgot-password` and `/reset-password` for a forgotten one), order history, saved products, seller application (again a week after a decline) |
+| `/deliveries` | Riders | Orders to deliver with the address and phone; start a delivery, mark it delivered or missed, or turn it down |
+| `/seller/*` | Approved sellers | Dashboard, product management with image uploads (backgrounds removed in the browser) and `.glb` models, order queue, returns |
+| `/admin/*` | Admin (each area needs the owner's permission) | Platform dashboard, seller approvals, product moderation, all orders, disputed returns, discount codes, users (including sending password reset emails and making riders), and the activity log |
+
+Every signed-in page has a notification bell for order and shop updates. On phones the site switches to a bottom tab bar (Home, Shop, Build, Cart; Deliveries for riders), with a menu in the top bar for the account, saved items, theme and Performance mode, and search opens full screen, instead of shrinking the desktop layout.
+
+**Performance mode.** A switch in the menu (and beside the theme toggle on desktop) swaps the 3D models for photos, so the 3D engine never downloads, turns off the animated backdrop and tones down the cursor. It's off by default; a device that looks or runs slow (little memory or few cores, data saver, or under 40 fps once the page settles) is offered it once ([PerformanceSuggestion](src/components/layout/PerformanceSuggestion.jsx)), and the choice is remembered on the device. Public product lists are also cached at Vercel's edge for a minute.
+
+## Required concepts, where each one lives
+
+**React frontend.** A Vite + React 19 app. Routes are declared in [App.jsx](src/App.jsx); server data goes through TanStack Query.
+
+**UI follows auth state.** The navbar, the checkout gate and the "Sign in to review" prompt all read the session from [AuthProvider](src/providers/AuthProvider.jsx); protected pages use [RequireAuth](src/components/layout/guards.jsx#L29). The session itself is an httpOnly cookie set by the API, so the client never handles the token.
+
+**Validation on both sides.** Every form uses React Hook Form with a Zod schema that mirrors the API's Mongoose rules, for example [the product form](src/features/seller/ProductFormPage.jsx#L50). The server is the final check, and its field errors are mapped back onto the form inputs by [applyServerErrors](src/lib/api.js#L67).
+
+## Notable decisions
+
+**The API is only reachable through the site.** [vercel.json](vercel.json) rewrites `/api` to the Render API, and [middleware.js](middleware.js) stamps each forwarded request with `PROXY_SECRET`; the API refuses requests without it. The browser only ever talks to one origin, so the session cookie stays first-party.
+
+**Real models, with a generated fallback.** Every seed product has a Sketchfab model (see Credits), and its three catalog photos in [public/products/](public/products/) are rendered from that model by `npm run shots`, so the photos and the 3D view always match. Sellers can upload their own `.glb`; products without one get a stand-in from [ProceduralModel](src/features/home/models/procedural.jsx#L440), built from the product's data (a keyboard's key grid follows its `layout` spec).
+
+**The hero is a category picker, not a product carousel.** [CategoryHero](src/features/home/CategoryHero.jsx) shows one 3D model per category on a single WebGL canvas, fitted so every model fills the same frame, under a search bar whose starter chips change with the selected category. Models load one at a time, and each one's textures and shaders are prepared off the main thread before it shows, so the first visit doesn't freeze. The canvas stops rendering when it's off screen or the tab is hidden, three.js loads only on pages that need it, and browsers without WebGL 2 get a still product shot instead.
+
+**Seller photos get their backgrounds removed in the browser.** [CutoutReview](src/features/seller/CutoutReview.jsx) runs `@imgly/background-removal` on each picked photo and shows it next to the original; the seller picks which one uploads. Doing it client-side needs no API key and adds no server load, so every listing can have a clean cutout like the seed renders.
+
+## Tests
+
+```bash
+npm test
+```
+
+The client suite covers the cart reducer, peso parsing and formatting, how API errors map onto form fields, and that the client's address rules and shipping fee match the server's, so checkout can't show a total the server won't charge.
+
+[CI](.github/workflows/ci.yml) runs lint, the tests and the build on every push and pull request to `main`.
+
+```bash
+npm run lint
+```
+
+## Known limitations
+
+- Payment is simulated. "Card (simulated)" collects no card details, and nothing is charged.
+- The seeded product images are renders of Sketchfab models, not photos.
+- Background removal downloads its model (about 40 MB) from IMG.LY's CDN the first time a seller uses it, and takes a few seconds per photo. The library is AGPL-3.0, which is fine for this coursework but would need a commercial licence or a swap before any closed-source use.
+- The currency is fixed to PHP.
+
+## Credits
+
+Every seed product's 3D model, and the product photos rendered from it, comes from Sketchfab under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Each was turned to face the camera, compressed (meshopt geometry, WebP textures at 512 px), and in one case trimmed (the Ledger's cable). The homepage's category showcase reuses these files. They live in [public/products/models/](public/products/models/).
+
+| Product | Model | Author |
+|---|---|---|
+| Northpaw Aster 75 Wireless | [VortexSeries Mechanical Keyboard GT-8 / NJ80](https://sketchfab.com/3d-models/vortexseries-mechanical-keyboard-gt-8-nj80-02d16e9dae72419aa24ec6788318f92b) | [Rendy K](https://sketchfab.com/RendyK) |
+| Northpaw Tern 65 | [65% Keyboard](https://sketchfab.com/3d-models/65-keyboard-58bb64ea94524b0ca220ef0fb5f6120e) | [RollerXD](https://sketchfab.com/rollerxd3d) |
+| Northpaw Halden TKL | [Logicool G913 TKL Gaming Keyboard](https://sketchfab.com/3d-models/logicool-g913-tkl-gaming-keyboard-8e2af3401b66418e8b0f00a3f69495fe) | [21CCG0006](https://sketchfab.com/21CCG0006) |
+| Northpaw Pip 60 | [Custom - Mechanical Keyboard](https://sketchfab.com/3d-models/custom-mechanical-keyboard-90d61eec0c484332ab562c5f4eda6f52) | [unknown.fbx](https://sketchfab.com/ibrahimtaha.fbx) |
+| Northpaw Ledger Full | [Mechanical keyboard](https://sketchfab.com/3d-models/mechanical-keyboard-1ba4055c33674567b51b783701ed05ce) | [FelikinRuslan](https://sketchfab.com/FelikinRuslan) |
+| Northpaw Sable 65 Wireless | [white to cyan shade 60% keyboard](https://sketchfab.com/3d-models/white-to-cyan-shade-60-keyboard-b210156b0a86460db63d4acbb7ee3e33) | [powder](https://sketchfab.com/powder12) |
+| Northpaw Coiled USB-C Cable | [Coiled Keyboard Cable](https://sketchfab.com/3d-models/coiled-keyboard-cable-f0f765ea810840858235ba1b900c0d52) (recoloured violet) | [lapeche](https://sketchfab.com/Emily.Fodden) |
+| Northpaw Numpad | [Numpad](https://sketchfab.com/3d-models/numpad-cedbec5131c044aebc82119510deaf3f) (laid flat) | [yuriwatt](https://sketchfab.com/yuriwatt) |
+| Glide Vane Pro | [Computer Mouse (low-poly)](https://sketchfab.com/3d-models/computer-mouse-low-poly-95eb7d0363bb4db79bd50168280ea1c7) | [LagzDesign](https://sketchfab.com/LagzDesign) |
+| Glide Vane Mini | [PC wireless mouse](https://sketchfab.com/3d-models/pc-wireless-mouse-df32a4319f304bc29330bf8c53c4adde) (recoloured) | [che_be](https://sketchfab.com/che_be) |
+| Glide Orbit Ergo | [Stealth Series: Ergonomic Wireless Mouse Concept](https://sketchfab.com/3d-models/stealth-series-ergonomic-wireless-mouse-concept-be00cd1edd364f30a0a2da8c0511d5e0) | [yazz88](https://sketchfab.com/yazz88) |
+| Glide Flick Wired | [Ice Claw mouse](https://sketchfab.com/3d-models/ice-claw-mouse-43de4d030ae94667bd8b8a478dd371ac) | [dmitriy7776661111](https://sketchfab.com/dmitriy7776661111) |
+| Glide Drift Travel | [computer mouse](https://sketchfab.com/3d-models/computer-mouse-bd571d8034b040f2834da88173b5739e) | [ChoboiAssets](https://sketchfab.com/alsoliman905) |
+| Glide Glow Pad 49 | [Razer Extended Mousepad](https://sketchfab.com/3d-models/razer-extended-mousepad-e17c23c3d6a642479204ca7d6823bb50) (edge recoloured cyan, cable trimmed) | [Rasyinggan 3D](https://sketchfab.com/naraharoufi) |
+| Glide Cloth XL | [mouse pad (keyboard pad)](https://sketchfab.com/3d-models/mouse-pad-keyboard-pad-7690f727d87847aaa737c8110c8e6531) (printed artwork added) | [ｍｆｋ](https://sketchfab.com/mfkffzl) |
+| Glide Control Pad M | [Damascus Mousepad](https://sketchfab.com/3d-models/damascus-mousepad-42dc83c9a40a49bfaaccd0ea50762f85) | [supahot](https://sketchfab.com/supahot) |
+| Hush Veil Wireless | [Headphones Free Model by Oscar Creative](https://sketchfab.com/3d-models/headphones-free-model-by-oscar-creative-db92168ca39541939d0110e64a37f92e) | [OSCAR CREATIVO](https://sketchfab.com/oscar_creativo) |
+| Hush Studio Open | [Studio Headphones](https://sketchfab.com/3d-models/studio-headphones-2f04830fbf884632a89445db0d170ba8) | [crow](https://sketchfab.com/crow.bite) |
+| Hush Lite Headset | [Wireless Headphones](https://sketchfab.com/3d-models/wireless-headphones-c5271140dfb442af9f8c45e1087d769f) | [ahtusik](https://sketchfab.com/ahtusik) |
+| Hush Frame 4K | [Web Camera](https://sketchfab.com/3d-models/web-camera-b6461ec1520748179686b87bef7089e9) | [darklord3d](https://sketchfab.com/erebus3d) |
+| Hush Frame 1080 | [Webcam](https://sketchfab.com/3d-models/webcam-6eb2066a95e04b87a322ef441933873c) | [Tus](https://sketchfab.com/Tus_R) |
+| Hush Frame Lite | [Webcam](https://sketchfab.com/3d-models/webcam-89d6eaf640c64d9aa6549e0b3fa54415) (recoloured) | [7124115](https://sketchfab.com/7124115) |
+| Northpaw Ridge 75 | [Red Mechanical Keyboard Monokei x TGR Tomo](https://sketchfab.com/3d-models/red-mechanical-keyboard-monokei-x-tgr-tomo-3f647039ee88471ba1ecbdee7cae65c3) | [RendyK](https://sketchfab.com/RendyK) |
+| Northpaw Cloud Wrist Rest | Modelled for this project | Loadout team |
+| Glide Vane Air | [Wireless Mouse](https://sketchfab.com/3d-models/wireless-mouse-98c12fa57e674408b7694d3b2e7f3a6f) (turned to face front) | [Maxime66410](https://sketchfab.com/Maxime66410) |
+| Glide Speed Pad L | [Mouse pad](https://sketchfab.com/3d-models/mouse-pad-d081ba4ce87d4088abe5dbb1b6ed8f55) (printed artwork added) | [oxygen3d](https://sketchfab.com/oxygen3d) |
+| Hush Pulse Wireless | [Wireless Gaming Headset](https://sketchfab.com/3d-models/wireless-gaming-headset-3075896c0ab84e23a6f085c300c33805) | [DatSketch](https://sketchfab.com/DatSketch) |
+| Hush Core Wired | [Red Dragon Headset](https://sketchfab.com/3d-models/red-dragon-headset-fc19b5826616472281c1717a71bd3cd8) (logo removed, turned to face front) | [abgreiver](https://sketchfab.com/abgreiver) |
+| Hush Frame Pro 1440 | [Insta360 Link 2 4K AI Webcam](https://sketchfab.com/3d-models/insta360-link-2-4k-ai-webcam-b6e5aa185a95459a923acabaf4e48005) (logos removed, simplified) | [bswlife](https://sketchfab.com/bswlife) |
+| Lumen Halo Light Bar | [BenQ Screenbar Halo](https://sketchfab.com/3d-models/benq-screenbar-halo-af29991f303748b4a49b06e6e1e07baa) (recoloured, LEDs lit) | [Virtuon](https://sketchfab.com/Virtuon) |
+| Lumen Perch Headphone Stand | [Headphone stand](https://sketchfab.com/3d-models/headphone-stand-06981a925b4245938a905b1921c44b26) | [raxar_](https://sketchfab.com/raxar_) |
+| Lumen Duo Felt Desk Mats | [(Free) Desk Mat Set - Pink and Blue](https://sketchfab.com/3d-models/free-desk-mat-set-pink-and-blue-11d247203dc54d2f9498facba5735d71) (felt texture and mark replaced) | [PolyDavid](https://sketchfab.com/PolyDavid) | <!-- allow-secret: Sketchfab model id, not a key -->
+| Lumen Stream Cam | [Logitech Webcam](https://sketchfab.com/3d-models/logitech-webcam-0523fbf537cd4ea4a41e96b8293312ac) (lettering removed) | [qoodrat](https://sketchfab.com/qoodrat) |
