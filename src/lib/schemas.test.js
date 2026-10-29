@@ -1,5 +1,5 @@
+import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import * as serverShipping from '../../../server/src/features/orders/shipping.js';
 import { FREE_SHIPPING_MIN_CENTS, SHIPPING_FEE_CENTS, shippingFor } from './constants.js';
 import { addressSchema, emailField, nameField } from './schemas.js';
 
@@ -60,7 +60,12 @@ describe('account fields', () => {
   });
 });
 
-describe('shipping shown at checkout', () => {
+// The server is its own repo, so this runs when it's cloned next to this one and is skipped otherwise (CI checks out
+// this repo alone).
+const SERVER_SHIPPING = new URL('../../../final-project-3-backend-webdevt/src/features/orders/shipping.js', import.meta.url);
+const serverShipping = existsSync(SERVER_SHIPPING) ? await import(SERVER_SHIPPING.href) : null;
+
+describe.skipIf(!serverShipping)('shipping shown at checkout', () => {
   it('matches what the server charges, including at the free-shipping boundary', () => {
     expect(SHIPPING_FEE_CENTS).toBe(serverShipping.SHIPPING_FEE_CENTS);
     expect(FREE_SHIPPING_MIN_CENTS).toBe(serverShipping.FREE_SHIPPING_MIN_CENTS);
